@@ -1,7 +1,7 @@
 # petstore-analyzer-consumer — design
 
 **Date:** 2026-09-23
-**Status:** approved
+**Status:** approved, then amended on 2026-09-23 to match what was built — see *Amendments*.
 
 ## Intent
 
@@ -21,68 +21,56 @@ endpoints, and the build no longer requires GitHub Packages credentials.
    `202`. Nothing is called downstream and nothing is stored.
 2. **The event carries a request body.** The hand-written spec declared no `requestBody`; that was
    an oversight. The body has exactly two properties — `eventType` (string) and `payload` (any
-   object).
+   object), **both required**.
 3. **The petstore client is stripped out entirely** — the generated client dependency, its
-   configuration, the Jersey plumbing and the isolated-layer mock scan all go. A consequence the
-   owner accepted explicitly: the repository stops demonstrating generated-client consumption and
-   mock support, and the isolated and integrated cucumber suites end up exercising identical
-   behaviour.
-4. **Both cucumber suites are kept** regardless of (3), so the layered test structure survives.
-5. **Full rename**, Java packages included, so this project stops colliding with its sibling in
-   the local Maven repository.
+   configuration and the Jersey plumbing all go. A consequence the owner accepted explicitly: the
+   repository stops demonstrating generated-client consumption and mock support.
+4. **Two test layers, unit and integrated — not three.** With no downstream client there is nothing
+   left to stub, so a stub-backed cucumber suite would exercise behaviour identical to the integrated
+   one.
+5. **An event is accepted only when both fields carry content** — a non-empty `eventType` *and* a
+   non-empty `payload` object. Anything else is a `400`.
 
-### Assumptions
+### Amendments
 
-These were proposed rather than decided, and are settled here so implementation is unambiguous:
+Recorded after implementation, so this document describes what exists:
 
-- `eventType` is required; `payload` is optional. `eventType` is therefore the only field whose
-  absence produces the spec's `400`.
-- Error `code` is `2000` for client errors (the example value in the owner's spec) and `5000` for
-  server errors.
-- The request schema is named `SupplierEvent`, matching the operation summary "Processes events
-  from suppliers".
+- The request schema is named **`EventRequestBody`** (the owner's wording), not `SupplierEvent`.
+- The service is `EventsService` / `EventsServiceImpl`, not `ProcessEventService`.
+- Both body properties are required. The originally-assumed "`payload` optional" is wrong.
+- Java packages were **not** renamed; they remain `mb.demo.applications.petstore.analyzer.*`. Only
+  the Maven coordinates, `finalName` and the application class carry the `consumer` suffix.
+- The contract documents a `500` branch as well as `202` and `400`.
 
 ## The contract
 
-`api/definition/petstore-analyzer-consumer-api.yaml` is edited in two places. The
-`processEvent` operation gains a required body:
+`api/definition/petstore-analyzer-consumer-api.yaml`. The `processEvent` operation takes a required
+body and declares three responses: `202` → `EventAcceptedResponse`, `400` and `500` →
+`ErrorResponse`. The request schema:
 
 ```yaml
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SupplierEvent'
-```
-
-and `components.schemas` gains:
-
-```yaml
-    SupplierEvent:
-      title: SupplierEvent
+    EventRequestBody:
+      title: EventRequestBody
       type: object
       required:
         - eventType
+        - payload
       properties:
         eventType:
           type: string
-          description: Type of the event
-          example: PET_ADDED
+          description: The type of event
+          example: ratio
         payload:
           type: object
-          additionalProperties: true
-          description: Free-form event payload
 ```
 
-`EventAcceptedResponse` and `ErrorResponse` are left exactly as the owner wrote them. Nothing else
-in the file changes.
+`EventAcceptedResponse` and `ErrorResponse` are exactly as the owner wrote them.
 
-Generated shapes to expect from `interfaceOnly=true` + `useTags=true`: interface `EventsApi` with
-method `processEvent`, models `SupplierEvent` (with `payload` as `Map<String, Object>`),
-`EventAcceptedResponse` (`UUID eventId`, `OffsetDateTime receivedAt`) and `ErrorResponse`
-(`BigDecimal code`, `String message`, `OffsetDateTime receivedAt`). Response models are generated —
-never hand-written.
+Generated shapes from `interfaceOnly=true` + `useTags=true`: interface `EventsApi` with method
+`processEvent`, and models `EventRequestBody` (`String eventType`, **`Object payload`** — a bare
+`type: object` with no `additionalProperties` does not generate a `Map`), `EventAcceptedResponse`
+(`UUID eventId`, `OffsetDateTime receivedAt`) and `ErrorResponse` (`BigDecimal code`,
+`String message`, `OffsetDateTime receivedAt`). Models are generated — never hand-written.
 
 ## Request flow
 
@@ -91,17 +79,17 @@ One chain, shaped like the three it replaces:
 ```
 EventsApi (generated interface, tag "events")
   → EventsRestController          implements EventsApi, extends BaseRestController
-  → producerTemplate.requestBody(DIRECT_ROUTE_PROCESS_EVENT, supplierEvent, EventAcceptedResponse.class)
+  → producerTemplate.requestBody(DIRECT_ROUTE_PROCESS_EVENT, eventRequestBody, EventAcceptedResponse.class)
   → EventsRouteBuilder            from(direct:processEvent).routeId(...).process(...)
-  → ProcessEventServiceImpl       logs the event, mints eventId + receivedAt
+  → EventsServiceImpl             validates the event, mints eventId + receivedAt
   → 202 { eventId, receivedAt }
 ```
 
-`ProcessEventService.processEvent(SupplierEvent)` returns an `EventAcceptedResponse` whose
-`eventId` is `UUID.randomUUID()` and whose `receivedAt` is `OffsetDateTime.now(ZoneOffset.UTC)`.
-There is no retry loop, because there is no downstream call to retry.
+`EventsService.processEvent(EventRequestBody)` returns an `EventAcceptedResponse` whose `eventId` is
+`UUID.randomUUID()` and whose `receivedAt` is `OffsetDateTime.now(ZoneOffset.UTC)`. There is no retry
+loop, because there is no downstream call to retry.
 
-The route body is the typed `SupplierEvent` rather than a `Map<String, Object>`: the map convention
+The route body is the typed `EventRequestBody` rather than a `Map<String, Object>`: the map convention
 in this repository exists for unpacking query and path parameters, and this operation has none.
 
 `RouteBuilderConstants` is reduced to one constant:
@@ -113,19 +101,30 @@ public static final String DIRECT_ROUTE_PROCESS_EVENT = "direct:processEvent";
 The controller returns `ResponseEntity.accepted().body(response)` so the status matches the spec's
 `202`.
 
-## Error handling
+## Validation and error handling
 
-A new `controllers/GlobalExceptionHandler` annotated `@RestControllerAdvice`, returning the
-generated `ErrorResponse` with `receivedAt` populated on every branch:
+Validation lives in `EventsServiceImpl`, not in bean validation on the controller. The generated
+`@NotNull` annotations cannot express "a non-empty object", and in practice do not fire for this
+operation at all; putting the rules in the service also satisfies the requirement that all three
+scenarios travel the controller → route → service chain. `service/InvalidEventException` (a
+`RuntimeException`) signals a rejection.
+
+`controllers/GlobalExceptionHandler`, annotated `@RestControllerAdvice`, maps exceptions onto the
+generated `ErrorResponse` with `receivedAt` populated on every branch. It is required because the
+generated `processEvent` signature returns `ResponseEntity<EventAcceptedResponse>` and so cannot carry
+an error body itself.
 
 | Exception | Status | `code` |
 |---|---|---|
-| `MethodArgumentNotValidException` (missing `eventType`) | 400 | 2000 |
+| `InvalidEventException` | 400 | 2000 |
+| `MethodArgumentNotValidException` | 400 | 2000 |
 | `HttpMessageNotReadableException` (malformed JSON) | 400 | 2000 |
-| `Exception` | 500 | 5000 |
+| anything else | 500 | 5000 |
 
-Validation reaches the controller because the generator emits `@Valid` on the body parameter when
-`jakarta.validation-api` is on the classpath, which it already is.
+`ProducerTemplate` wraps exceptions thrown inside a route in a `CamelExecutionException`, so the
+handler unwraps `getCause()` before mapping. `EventsRouteBuilder` declares
+`onException(InvalidEventException.class).logStackTrace(false).logExhausted(false).handled(false)`, so
+a rejection does not log a Camel delivery-failure stack trace while still surfacing to the caller.
 
 ## Main sources
 
@@ -134,14 +133,14 @@ Validation reaches the controller because the generator emits `@Valid` on the bo
 - `controllers/EventsRestController.java`
 - `controllers/GlobalExceptionHandler.java`
 - `routes/EventsRouteBuilder.java`
-- `service/ProcessEventService.java`
-- `service/impl/ProcessEventServiceImpl.java`
+- `service/EventsService.java`
+- `service/InvalidEventException.java`
+- `service/impl/EventsServiceImpl.java`
 
-**Kept** (repackaged only): `controllers/BaseRestController.java`,
-`routes/BaseRouteBuilder.java`.
+**Kept:** `controllers/BaseRestController.java`, `routes/BaseRouteBuilder.java`.
 
-**Edited:** `config/ObjectMapperConfiguration.java` — it imports `RFC3339DateFormat` *from the
-petstore client jar*, so the `setDateFormat(new RFC3339DateFormat())` call and its import are
+**Edited:** `config/ObjectMapperConfiguration.java` — it imported `RFC3339DateFormat` *from the
+generated client jar*, so the `setDateFormat(new RFC3339DateFormat())` call and its import are
 dropped. `JavaTimeModule` plus the already-disabled `WRITE_DATES_AS_TIMESTAMPS` handle
 `OffsetDateTime` serialisation.
 
@@ -157,9 +156,8 @@ dropped. `JavaTimeModule` plus the already-disabled `WRITE_DATES_AS_TIMESTAMPS` 
 
 `backend/pom.xml`:
 
-- `api.defininiton.input.file` → `petstore-analyzer-consumer-api.yaml`. This is the current build
-  break: the property still names the deleted `petstore-analyzer-consumer-api.yaml`, so the generator fails
-  before anything else can.
+- `api.defininiton.input.file` → `petstore-analyzer-consumer-api.yaml`. Until this was fixed the
+  property still named the deleted analyzer spec, so the generator failed before anything else could.
 - Remove the `mb.demos.openapi.generated.api.client:petstore` dependency, `jersey-client`,
   `jersey-media-json-jackson`, `jersey-media-multipart` and `scribejava-core` — all of them existed
   only for the generated client.
@@ -172,71 +170,57 @@ dropped. `JavaTimeModule` plus the already-disabled `WRITE_DATES_AS_TIMESTAMPS` 
 `application.yaml`: drop the whole `services.petstore` block; `spring.application.name` →
 `petstore-analyzer-consumer`.
 
-`CLAUDE.md` mentions a `local-deps/petstore-1.0.27.jar` offline copy of the client; that directory
-does not exist in this copy, so there is nothing to remove there.
+There is no `local-deps/` directory in this copy, so there is no offline copy of the client jar to
+remove.
 
 ## Rename
 
 Maven coordinates become `mb.demo.applications:petstore-analyzer-consumer` in the root pom and in
-both module parents; the root `name` and `description` are updated to describe an event consumer.
+both module parents; the root `name` and `description` describe an event consumer.
+`PetstoreAnalyzerApplication` → `PetstoreAnalyzerConsumerApplication`, with its `@OpenAPIDefinition`
+title and description updated.
 
-Java packages move from `mb.demo.applications.petstore.analyzer.*` to
-`mb.demo.applications.petstore.analyzer.consumer.*`, in main *and* test sources.
-`PetstoreAnalyzerApplication` → `PetstoreAnalyzerConsumerApplication`, with its
-`@OpenAPIDefinition` title and description updated. Generator properties `api.package.api`,
-`api.package.model` and `api.package.invoker` follow the same move.
-
-Three places reference package names as *strings* and will not be caught by a rename refactor:
-the `GLUE_PROPERTY_NAME` values in `RunIsolatedCucumberTest` and `RunIntegratedCucumberTest`, and
-the `mainClass` in `backend/pom.xml`.
+Java packages stay at `mb.demo.applications.petstore.analyzer.*` (see *Amendments*). Should they ever
+move, three places reference package names as *strings* and will not be caught by a rename refactor:
+the `GLUE_PROPERTY_NAME` value in `RunIntegratedCucumberTest`, the generator properties
+`api.package.api` / `api.package.model` / `api.package.invoker`, and the `mainClass` in
+`backend/pom.xml`.
 
 ## Tests
 
-`TestDataHolder` drops its six petstore response fields and holds a single
-`ResponseEntity<String>`, so `Then` steps can assert on status code *and* body — required for the
-`400` scenarios, where the body is an `ErrorResponse` rather than an `EventAcceptedResponse`. Step
-definitions parse it with the already-injected `ObjectMapper`. The `exception` field is dropped.
+`TestDataHolder` drops its six petstore response fields and holds a single `ResponseEntity<String>`,
+so `Then` steps can assert on status code *and* body — required for the `400` scenarios, where the
+body is an `ErrorResponse` rather than an `EventAcceptedResponse`. Step definitions parse it with the
+already-injected `ObjectMapper`. The `exception` field is dropped.
 
-Shared steps move from `base/cucumber/steps/PetstoreAnalyzerStepDefs` to
-`base/cucumber/steps/EventProcessingStepDefs`: the `When` that POSTs an event, and the `Then`s
-asserting status, `eventId`, `receivedAt`, and error `code` / `message`.
+`BaseCucumberStepDefs` stops setting an `ExtractingResponseErrorHandler` on the `TestRestTemplate`:
+with no mappings it delegates to `DefaultResponseErrorHandler` and throws on `4xx`, which would make
+the rejection scenarios error instead of assert.
 
-The layer-specific `Given`s have nothing left to mock, so they become profile assertions:
+Shared steps live in `base/cucumber/steps/PetstoreAnalyzerConsumerStepDefs`: the `When`s that POST an
+event, and the `Then`s asserting status, `eventId` and error `message`. `Then I expect a "<reason
+phrase>" response` resolves the phrase against `HttpStatus`, so the feature file reads in words.
 
-- `IsolatedStepDefs` — "the application runs in isolation", asserting the `isolated` profile is
-  active. Its `PetApiClient` collaborator is removed.
-- `IntegratedStepDefs` — "the application runs with its real dependencies", asserting `isolated`
-  is not active. Its `PetApiClient` collaborator is removed, which also removes an existing bug:
-  the constructor currently takes `PetApiClient` twice (`petApiClient` and `petApiClient1`) and
-  assigns the second.
+`features/integrated/PetstoreAnalyzerConsumerIntegratedTests.feature`, written by the owner, holds
+three scenarios:
 
-`IsolatedTestConfiguration` loses `@ComponentScan("mb.demos.openapi.generated.api.client")` but
-keeps `@Profile("isolated")`. `IntegratedTestConfiguration` is unchanged apart from its package.
-Both bootstrappers keep their profile lists and point at the renamed application class.
-`PetstoreAnalyzerApplicationTests` → `PetstoreAnalyzerConsumerApplicationTests`, still just a
-context-load test.
+1. An event with both an `eventType` and a `payload` → `202`, with an id
+2. An event missing `eventType` → `400`, with an error message
+3. An event missing `payload` → `400`, with an error message
 
-Feature files are renamed to `features/isolated/ProcessEventIsolatedTests.feature` and
-`features/integrated/ProcessEventIntegratedTests.feature`. These scenarios appear **verbatim in
-both**, inside the `### same tests as … ###` banners the repository uses:
-
-1. A valid supplier event is accepted → `202`, `eventId` and `receivedAt` both non-null
-2. An event missing `eventType` is rejected → `400`, with `code` and `message` present
-3. A malformed JSON body is rejected → `400`
-
-Plus one isolated-only scenario: an event carrying an arbitrary `payload` object is still accepted.
-
-New unit test `unit/ProcessEventServiceImplTest`: a distinct `eventId` on each call, and a
-`receivedAt` that is populated. `unit/SampleUnitTest` stays as the surefire smoke test.
+New unit test `unit/EventsServiceImplTest` covers the service's rules directly: a valid event is
+accepted, each call mints a distinct `eventId`, and a missing / blank `eventType`, missing / empty /
+non-object `payload`, or null event are each rejected. `unit/SampleUnitTest` stays as the surefire
+smoke test.
 
 Nothing changes in the surefire / failsafe split: a runner must still be named `*CucumberTest`.
 
 ## Documentation
 
-`CLAUDE.md` describes the old architecture in detail — the three request chains, the retry-loop
-convention, the generated petstore client and its mock support, and the isolated-vs-integrated
-distinction resting on that mock. All of it becomes wrong and is rewritten to describe the event
-consumer. `README.md` and `TODO.md` get their descriptions brought in line.
+`CLAUDE.md` described the old architecture in detail — the three request chains, the retry-loop
+convention, the generated downstream client, and a three-layer test setup resting on a stub of that
+client. All of it became wrong and is rewritten to describe the event consumer and its two test
+layers. `README.md` gets its description brought in line.
 
 ## Out of scope
 

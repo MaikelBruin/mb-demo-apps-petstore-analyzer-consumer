@@ -15,7 +15,7 @@
     <packaging>pom</packaging>
     <version>0.0.1-SNAPSHOT</version>
     <name>petstore-analyzer-consumer</name>
-    <description>Demo project for showing dependencies on other services and different testing methods</description>
+    <description>Demo project for showing a contract-first event consumer and different testing methods</description>
 
 
     <developers>

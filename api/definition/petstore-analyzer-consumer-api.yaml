@@ -1,7 +1,7 @@
 openapi: 3.0.1
 info:
-  title: petstore analyzer
-  description: 'An api to demonstrate working with (external) dependencies and usage of generated clients and mocks'
+  title: petstore analyzer consumer
+  description: 'An api to demonstrate consuming events, and the difference between unit and integrated tests'
   version: '1.1.1'
 servers:
   - url: 'https://localhost:8080'
@@ -33,7 +33,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         500:
-          description: Internal Server Error
+          description: InternalServerError
           content:
             application/json:
               schema:
