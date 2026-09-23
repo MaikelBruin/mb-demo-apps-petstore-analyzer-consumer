@@ -1,11 +1,10 @@
 package mb.demo.applications.petstore.analyzer.routes;
 
 import mb.demo.applications.petstore.analyzer.service.EventsService;
-import mb.demo.applications.petstore.analyzer.webapi.model.TotalResponse;
+import mb.demo.applications.petstore.analyzer.webapi.model.EventAcceptedResponse;
+import mb.demo.applications.petstore.analyzer.webapi.model.EventRequestBody;
 import org.apache.camel.CamelContext;
 import org.springframework.stereotype.Component;
-
-import java.util.Map;
 
 @Component
 public class EventsRouteBuilder extends BaseRouteBuilder {
@@ -22,7 +21,7 @@ public class EventsRouteBuilder extends BaseRouteBuilder {
         from(RouteBuilderConstants.DIRECT_ROUTE_PROCESS_EVENT)
                 .routeId(RouteBuilderConstants.DIRECT_ROUTE_PROCESS_EVENT + "Id")
                 .process(exchange -> {
-                    TotalResponse response = eventsService.processEvent();
+                    EventAcceptedResponse response = eventsService.processEvent(new EventRequestBody());
                     exchange.getMessage().setBody(response);
                 });
     }

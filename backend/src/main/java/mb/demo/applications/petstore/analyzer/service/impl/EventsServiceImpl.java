@@ -14,6 +14,6 @@ public class EventsServiceImpl implements EventsService {
 
     @Override
     public EventAcceptedResponse processEvent(EventRequestBody requestBody) throws ApiException, InterruptedException {
-
+        return null;
     }
 }
