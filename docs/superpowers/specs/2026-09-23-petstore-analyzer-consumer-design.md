@@ -158,7 +158,7 @@ dropped. `JavaTimeModule` plus the already-disabled `WRITE_DATES_AS_TIMESTAMPS` 
 `backend/pom.xml`:
 
 - `api.defininiton.input.file` → `petstore-analyzer-consumer-api.yaml`. This is the current build
-  break: the property still names the deleted `petstore-analyzer-api.yaml`, so the generator fails
+  break: the property still names the deleted `petstore-analyzer-consumer-api.yaml`, so the generator fails
   before anything else can.
 - Remove the `mb.demos.openapi.generated.api.client:petstore` dependency, `jersey-client`,
   `jersey-media-json-jackson`, `jersey-media-multipart` and `scribejava-core` — all of them existed

@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: petstore-analyzer-consumer
+
+springdoc:
+  show-actuator: false
+  swagger-ui:
+    path: /api
+    tags-sorter: alpha
+
+  api-docs:
+    path: /api-docs
