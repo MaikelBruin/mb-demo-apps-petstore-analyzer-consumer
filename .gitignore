@@ -1,3 +1,11 @@
+# Folders
+.idea/
+.claude/
+target/
+backend/target/
+api/target/
+
+
 # Compiled class file
 *.class
 
