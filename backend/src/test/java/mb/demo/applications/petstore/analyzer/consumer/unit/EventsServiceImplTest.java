@@ -2,6 +2,7 @@ package mb.demo.applications.petstore.analyzer.consumer.unit;
 
 import mb.demo.applications.petstore.analyzer.consumer.service.EventsService;
 import mb.demo.applications.petstore.analyzer.consumer.service.InvalidEventException;
+import mb.demo.applications.petstore.analyzer.consumer.service.TeapotException;
 import mb.demo.applications.petstore.analyzer.consumer.service.impl.EventsServiceImpl;
 import mb.demo.applications.petstore.analyzer.consumer.webapi.model.EventAcceptedResponse;
 import mb.demo.applications.petstore.analyzer.consumer.webapi.model.EventRequestBody;
@@ -9,13 +10,23 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.Random;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 public class EventsServiceImplTest {
 
-    private final EventsService eventsService = new EventsServiceImpl();
+    private static Random alwaysDraws(final int value) {
+        return new Random() {
+            @Override
+            public int nextInt(final int bound) {
+                return value;
+            }
+        };
+    }
+
+    private final EventsService eventsService = new EventsServiceImpl(alwaysDraws(1));
 
     private static EventRequestBody event(final String eventType, final Object payload) {
         return new EventRequestBody().eventType(eventType).payload(payload);
@@ -71,5 +82,20 @@ public class EventsServiceImplTest {
     public void rejectsAnEventThatIsAbsentAltogether() {
         assertThatThrownBy(() -> eventsService.processEvent(null))
                 .isInstanceOf(InvalidEventException.class);
+    }
+
+    @Test
+    public void respondsWithATeapotWhenTheOneInAHundredDrawComesUp() {
+        EventsService unluckyService = new EventsServiceImpl(alwaysDraws(0));
+
+        assertThatThrownBy(() -> unluckyService.processEvent(event("ratio", Map.of("petId", 947))))
+                .isInstanceOf(TeapotException.class);
+    }
+
+    @Test
+    public void doesNotRespondWithATeapotOnAnyOtherDraw() {
+        EventsService luckyService = new EventsServiceImpl(alwaysDraws(99));
+
+        assertThat(luckyService.processEvent(event("ratio", Map.of("petId", 947))).getEventId()).isNotNull();
     }
 }
