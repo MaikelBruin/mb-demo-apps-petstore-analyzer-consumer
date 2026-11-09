@@ -2,6 +2,7 @@ package mb.demo.applications.petstore.analyzer.consumer.controllers;
 
 import lombok.extern.slf4j.Slf4j;
 import mb.demo.applications.petstore.analyzer.consumer.service.InvalidEventException;
+import mb.demo.applications.petstore.analyzer.consumer.service.TeapotException;
 import mb.demo.applications.petstore.analyzer.consumer.webapi.model.ErrorResponse;
 import org.apache.camel.CamelExecutionException;
 import org.springframework.http.HttpStatus;
@@ -21,7 +22,15 @@ import java.util.stream.Collectors;
 public class GlobalExceptionHandler {
 
     private static final BigDecimal REJECTED_EVENT_CODE = BigDecimal.valueOf(2000);
+    private static final BigDecimal TEAPOT_CODE = BigDecimal.valueOf(4180);
     private static final BigDecimal UNEXPECTED_ERROR_CODE = BigDecimal.valueOf(5000);
+
+    private static ResponseEntity<ErrorResponse> errorResponse(final HttpStatus status, final BigDecimal code, final String message) {
+        return ResponseEntity.status(status).body(new ErrorResponse()
+                .code(code)
+                .message(message)
+                .receivedAt(OffsetDateTime.now(ZoneOffset.UTC)));
+    }
 
     /**
      * The producer template wraps whatever is thrown inside the route, so a rejection has to be
@@ -32,8 +41,17 @@ public class GlobalExceptionHandler {
         if (exception.getCause() instanceof InvalidEventException invalidEventException) {
             return handleInvalidEventException(invalidEventException);
         }
+        if (exception.getCause() instanceof TeapotException teapotException) {
+            return handleTeapotException(teapotException);
+        }
         log.error("processing the event failed unexpectedly", exception);
         return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, UNEXPECTED_ERROR_CODE, "An error has occurred");
+    }
+
+    @ExceptionHandler(TeapotException.class)
+    public ResponseEntity<ErrorResponse> handleTeapotException(final TeapotException exception) {
+        log.info("responding with a teapot");
+        return errorResponse(HttpStatus.I_AM_A_TEAPOT, TEAPOT_CODE, exception.getMessage());
     }
 
     @ExceptionHandler(InvalidEventException.class)
@@ -59,12 +77,5 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleHttpMessageNotReadableException(final HttpMessageNotReadableException exception) {
         log.info("rejecting unreadable event: {}", exception.getMessage());
         return errorResponse(HttpStatus.BAD_REQUEST, REJECTED_EVENT_CODE, "event could not be read as json");
-    }
-
-    private static ResponseEntity<ErrorResponse> errorResponse(final HttpStatus status, final BigDecimal code, final String message) {
-        return ResponseEntity.status(status).body(new ErrorResponse()
-                .code(code)
-                .message(message)
-                .receivedAt(OffsetDateTime.now(ZoneOffset.UTC)));
     }
 }

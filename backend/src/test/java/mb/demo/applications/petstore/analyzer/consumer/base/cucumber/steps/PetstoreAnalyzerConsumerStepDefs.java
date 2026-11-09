@@ -31,6 +31,16 @@ public class PetstoreAnalyzerConsumerStepDefs extends BaseCucumberStepDefs {
         super(camelContext, producerTemplate, testDataHolder, objectMapper, testRestTemplate);
     }
 
+    /**
+     * Resolves the reason phrase used in the feature file, e.g. "Bad Request", to its status.
+     */
+    private static HttpStatusCode statusWithReasonPhrase(final String reasonPhrase) {
+        return Arrays.stream(HttpStatus.values())
+                .filter(httpStatus -> httpStatus.getReasonPhrase().equalsIgnoreCase(reasonPhrase))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("no http status with reason phrase '" + reasonPhrase + "'"));
+    }
+
     @When("I receive an event that includes an eventType and payload")
     public void iReceiveAnEventThatIncludesAnEventTypeAndPayload() {
         Map<String, Object> event = new HashMap<>();
@@ -77,15 +87,5 @@ public class PetstoreAnalyzerConsumerStepDefs extends BaseCucumberStepDefs {
     private void processEvent(final Map<String, Object> event) {
         log.info("processing event '{}'...", event);
         testDataHolder.setResponse(testRestTemplate.postForEntity(PROCESS_EVENT_URI, event, String.class));
-    }
-
-    /**
-     * Resolves the reason phrase used in the feature file, e.g. "Bad Request", to its status.
-     */
-    private static HttpStatusCode statusWithReasonPhrase(final String reasonPhrase) {
-        return Arrays.stream(HttpStatus.values())
-                .filter(httpStatus -> httpStatus.getReasonPhrase().equalsIgnoreCase(reasonPhrase))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("no http status with reason phrase '" + reasonPhrase + "'"));
     }
 }

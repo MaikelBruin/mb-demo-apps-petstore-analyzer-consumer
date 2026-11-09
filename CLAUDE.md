@@ -33,6 +33,10 @@ mvn -pl backend verify -Dit.test=RunIntegratedCucumberTest \
 Surefire **excludes** `**/*IntegrationTest.java` and `**/*CucumberTest.java`; failsafe includes only
 those. A new cucumber runner must therefore be named `*CucumberTest` or it will never run.
 
+Port defaults to 8080; override with `--server.port=…` / `SERVER_PORT` (cucumber uses a random port).
+The springdoc version must track Spring Boot (2.8.x for Boot 3.5) — an old springdoc fails at
+`/api-docs` with `NoSuchMethodError … ControllerAdviceBean`.
+
 Once running: Swagger UI at `/api`, OpenAPI JSON at `/api-docs`, actuator at `/actuator`.
 
 ## Architecture
@@ -55,7 +59,7 @@ generated EventsApi interface
   → controllers/EventsRestController (extends BaseRestController, holds ProducerTemplate)
   → producerTemplate.requestBody("direct:<operationId>", body, ResponseType.class)
   → routes/EventsRouteBuilder  (Camel direct: route, .process(...) calls the service)
-  → service/impl/EventsServiceImpl  (mints eventId + receivedAt)
+  → service/impl/EventsServiceImpl  (teapot draw, validation, mints eventId + receivedAt)
 ```
 
 Route URIs are constants in `routes/RouteBuilderConstants` and are named after the spec's
@@ -77,7 +81,14 @@ body:
 | `InvalidEventException` | 400 | 2000 |
 | `MethodArgumentNotValidException` | 400 | 2000 |
 | `HttpMessageNotReadableException` (unreadable json) | 400 | 2000 |
+| `TeapotException` | 418 | 4180 |
 | anything else | 500 | 5000 |
+
+**Demo teapot.** For demo purposes `EventsServiceImpl` throws `TeapotException` on a 1-in-100 random
+draw (`randomGenerator.nextInt(100) == 0`), *before* validation, so any request can get a 418. The
+`RandomGenerator` is injected (bean in `config/RandomConfiguration`) so tests control it: unit tests
+pass a stubbed `Random`, and `BaseTestConfiguration` registers a `@Primary` generator that never
+draws 0 so cucumber scenarios stay deterministic. The 418 is therefore only covered at unit level.
 
 `ProducerTemplate` wraps whatever is thrown inside a route in a `CamelExecutionException`, so the
 handler unwraps `getCause()` before mapping it. A rejection is an expected outcome, not a delivery
