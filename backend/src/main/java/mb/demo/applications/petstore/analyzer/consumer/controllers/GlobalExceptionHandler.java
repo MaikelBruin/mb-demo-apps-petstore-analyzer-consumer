@@ -25,6 +25,13 @@ public class GlobalExceptionHandler {
     private static final BigDecimal TEAPOT_CODE = BigDecimal.valueOf(4180);
     private static final BigDecimal UNEXPECTED_ERROR_CODE = BigDecimal.valueOf(5000);
 
+    private static ResponseEntity<ErrorResponse> errorResponse(final HttpStatus status, final BigDecimal code, final String message) {
+        return ResponseEntity.status(status).body(new ErrorResponse()
+                .code(code)
+                .message(message)
+                .receivedAt(OffsetDateTime.now(ZoneOffset.UTC)));
+    }
+
     /**
      * The producer template wraps whatever is thrown inside the route, so a rejection has to be
      * unwrapped before it can be mapped onto a response.
@@ -70,12 +77,5 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleHttpMessageNotReadableException(final HttpMessageNotReadableException exception) {
         log.info("rejecting unreadable event: {}", exception.getMessage());
         return errorResponse(HttpStatus.BAD_REQUEST, REJECTED_EVENT_CODE, "event could not be read as json");
-    }
-
-    private static ResponseEntity<ErrorResponse> errorResponse(final HttpStatus status, final BigDecimal code, final String message) {
-        return ResponseEntity.status(status).body(new ErrorResponse()
-                .code(code)
-                .message(message)
-                .receivedAt(OffsetDateTime.now(ZoneOffset.UTC)));
     }
 }

@@ -26,19 +26,6 @@ public class EventsServiceImpl implements EventsService {
         this.randomGenerator = randomGenerator;
     }
 
-    @Override
-    public EventAcceptedResponse processEvent(final EventRequestBody requestBody) {
-        // for demo purposes, one in a hundred requests is answered with a teapot
-        if (randomGenerator.nextInt(TEAPOT_ODDS) == 0) {
-            throw new TeapotException();
-        }
-        validate(requestBody);
-        log.info("accepting event of type '{}'...", requestBody.getEventType());
-        return new EventAcceptedResponse()
-                .eventId(UUID.randomUUID())
-                .receivedAt(OffsetDateTime.now(ZoneOffset.UTC));
-    }
-
     /**
      * An event is only accepted when it carries both a non-empty eventType and a non-empty payload
      * object.
@@ -53,5 +40,18 @@ public class EventsServiceImpl implements EventsService {
         if (!(requestBody.getPayload() instanceof Map<?, ?> payload) || payload.isEmpty()) {
             throw new InvalidEventException("event is missing a non-empty payload object");
         }
+    }
+
+    @Override
+    public EventAcceptedResponse processEvent(final EventRequestBody requestBody) {
+        // for demo purposes, one in a hundred requests is answered with a teapot
+        if (randomGenerator.nextInt(TEAPOT_ODDS) == 0) {
+            throw new TeapotException();
+        }
+        validate(requestBody);
+        log.info("accepting event of type '{}'...", requestBody.getEventType());
+        return new EventAcceptedResponse()
+                .eventId(UUID.randomUUID())
+                .receivedAt(OffsetDateTime.now(ZoneOffset.UTC));
     }
 }

@@ -17,6 +17,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 public class EventsServiceImplTest {
 
+    private final EventsService eventsService = new EventsServiceImpl(alwaysDraws(1));
+
     private static Random alwaysDraws(final int value) {
         return new Random() {
             @Override
@@ -25,8 +27,6 @@ public class EventsServiceImplTest {
             }
         };
     }
-
-    private final EventsService eventsService = new EventsServiceImpl(alwaysDraws(1));
 
     private static EventRequestBody event(final String eventType, final Object payload) {
         return new EventRequestBody().eventType(eventType).payload(payload);
